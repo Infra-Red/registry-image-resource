@@ -50,8 +50,15 @@ func (c *Check) Execute() error {
 	}
 
 	if req.Source.AwsAccessKeyId != "" && req.Source.AwsSecretAccessKey != "" && req.Source.AwsRegion != "" {
-		if !req.Source.AuthenticateToECR() {
-			return fmt.Errorf("cannot authenticate with ECR")
+		switch {
+		case strings.HasPrefix(req.Source.Repository, "public.ecr.aws/"):
+			if !req.Source.AuthenticateToECRPublic() {
+				return fmt.Errorf("cannot authenticate with ECR Public")
+			}
+		default:
+			if !req.Source.AuthenticateToECR() {
+				return fmt.Errorf("cannot authenticate with ECR")
+			}
 		}
 	}
 

@@ -17,6 +17,8 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ecr"
 	"github.com/aws/aws-sdk-go/service/ecr/ecriface"
+	"github.com/aws/aws-sdk-go/service/ecrpublic"
+	"github.com/aws/aws-sdk-go/service/ecrpublic/ecrpubliciface"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
@@ -289,12 +291,58 @@ func (source *Source) AuthenticateToECR() bool {
 	return true
 }
 
+func (source *Source) AuthenticateToECRPublic() bool {
+	logrus.Warnln("ECR Public integration is experimental and untested")
+	mySession := session.Must(session.NewSession(&aws.Config{
+		// The ECR Public API is only available in us-east-1
+		// https://docs.aws.amazon.com/general/latest/gr/ecr-public.html
+		Region:      aws.String("us-east-1"),
+		Credentials: credentials.NewStaticCredentials(source.AwsAccessKeyId, source.AwsSecretAccessKey, source.AwsSessionToken),
+	}))
+
+	var config aws.Config
+
+	// If a role arn has been supplied, then assume role and get a new session
+	if source.AwsRoleArn != "" {
+		config = aws.Config{Credentials: stscreds.NewCredentials(mySession, source.AwsRoleArn)}
+	}
+
+	client := ecrpublic.New(mySession, &config)
+	result, err := source.GetECRPublicAuthorizationToken(client)
+	if err != nil {
+		logrus.Errorf("failed to authenticate to ECR Public: %s", err)
+		return false
+	}
+
+	output, err := base64.StdEncoding.DecodeString(aws.StringValue(result.AuthorizationData.AuthorizationToken))
+	if err != nil {
+		logrus.Errorf("failed to decode credential (%s)", err.Error())
+		return false
+	}
+
+	tokens := strings.SplitN(string(output), ":", 2)
+	if len(tokens) != 2 {
+		logrus.Errorf("failed to parse credential.")
+		return false
+	}
+
+	// Update username and password
+	source.Username = tokens[0]
+	source.Password = tokens[1]
+
+	return true
+}
+
 func (source *Source) GetECRAuthorizationToken(client ecriface.ECRAPI) (*ecr.GetAuthorizationTokenOutput, error) {
 	input := &ecr.GetAuthorizationTokenInput{}
 	if source.AWSECRRegistryId != "" {
 		input.RegistryIds = append(input.RegistryIds, aws.String(source.AWSECRRegistryId))
 	}
 	return client.GetAuthorizationToken(input)
+}
+
+func (source *Source) GetECRPublicAuthorizationToken(client ecrpubliciface.ECRPublicAPI) (*ecrpublic.GetAuthorizationTokenOutput, error) {
+	return client.GetAuthorizationToken(&ecrpublic.GetAuthorizationTokenInput{})
 }
 
 // Tag refers to a tag for an image in the registry.

@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 
 	resource "github.com/concourse/registry-image-resource"
 	"github.com/fatih/color"
@@ -65,8 +66,15 @@ func (i *In) Execute() error {
 	dest := i.args[1]
 
 	if req.Source.AwsAccessKeyId != "" && req.Source.AwsSecretAccessKey != "" && req.Source.AwsRegion != "" {
-		if !req.Source.AuthenticateToECR() {
-			return fmt.Errorf("cannot authenticate with ECR")
+		switch {
+		case strings.HasPrefix(req.Source.Repository, "public.ecr.aws/"):
+			if !req.Source.AuthenticateToECRPublic() {
+				return fmt.Errorf("cannot authenticate with ECR Public")
+			}
+		default:
+			if !req.Source.AuthenticateToECR() {
+				return fmt.Errorf("cannot authenticate with ECR")
+			}
 		}
 	}
 
